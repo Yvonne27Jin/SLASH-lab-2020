@@ -1,0 +1,465 @@
+---
+title: "Data Cleaning"
+author: "Yvonne JIN"
+date: "12/18/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(foreign)
+library(haven)
+library(tidyverse)
+library(tidyr)
+library(ggplot2)
+library(lavaan)
+library(apaTables)
+```
+
+## Loading data
+
+loading database with variable labels
+
+```{r cars}
+# read in SPSS data with labels being added to demographic data
+df_labelled <- read.spss("merged_Survey on Sleep Health+followedup.sav",use.value.labels = T,to.data.frame = T)
+
+
+
+```
+
+
+Eligibility & consent check
+```{r}
+
+parti_lablled <- df_labelled %>% filter(Eli1 == "Yes" & Eli2 == "Yes")
+# 1633 -> 1591
+
+parti_lablled <- parti_lablled %>% filter(agree == "Yes")
+# 1591 -> 1387
+
+
+COVID_cleaned <- parti_lablled[c("SCOV_ID")]
+
+
+
+```
+
+
+
+
+loading database for numerical computation
+```{r}
+# read in SPSS data with original (numerical) values
+df <- read_spss("merged_Survey on Sleep Health+followedup.sav")
+
+df_1 <- df %>% filter(Eli1 == 2 & Eli2 == 1 & agree == 1)
+# 1633 -> 1387
+
+# count No. of NAs for each value
+countna <- colSums(is.na(df))
+```
+
+
+## DASS22 psychiatric illnesses
+
+
+DASS22: Have you ever been diagnosed with mental health problems?
+
+
+```{r}
+#!is.na(parti_lablled$DASS22a_1)
+
+current_medical_illness <- select(parti_lablled, starts_with("DASS22")) %>% 
+  filter(!is.na(DASS22))
+
+summary(current_medical_illness)
+
+```
+
+
+## phyhealth: medical conditions
+
+```{r}
+
+phyhealth_ <- parti_lablled %>% select(starts_with("phyhealth"))
+
+summary(phyhealth_)
+
+table(phyhealth_$phyhealth_10_TEXT)
+table(phyhealth_$phyhealth_12_TEXT)
+
+
+```
+
+
+## exercise & sedentary hours
+
+exercise
+
+```{r}
+
+# compute active exercising time (in minutes), intensive activity cound as twice of moderate act
+df_1 <- df_1 %>% mutate(
+  intensive_time =  case_when(strenuous_act1==0 ~ 0, 
+                              strenuous_act1a ==1 ~ 20, 
+                              strenuous_act1a ==2 ~ 45,
+                              strenuous_act1a ==3 ~ 90,
+                              strenuous_act1a ==4 ~ 120),
+  moderate_time = case_when(moderate_act1 ==0 ~ 0, 
+                            moderate_act1a ==1 ~ 20, 
+                            moderate_act1a ==2 ~ 45,
+                            moderate_act1a ==3 ~ 90,
+                            moderate_act1a ==4 ~ 120),
+  exercise = as.numeric(strenuous_act1)*intensive_time*2 + as.numeric(moderate_act1)*moderate_time,
+  
+  intensive_time_F =  case_when(strenuous1_F == 0 ~ 0, 
+                                strenuous2_F == 1 ~ 20, 
+                                strenuous2_F ==2 ~ 45,
+                                strenuous2_F ==3 ~ 90,
+                                strenuous2_F ==4 ~ 120),
+  moderate_time_F = case_when(moderate1_F == 0 ~ 0, 
+                              moderate2_F ==1 ~ 20, 
+                              moderate2_F ==2 ~ 45,
+                              moderate2_F ==3 ~ 90,
+                              moderate2_F ==4 ~ 120),
+  exercise_F = as.numeric(strenuous1_F)*intensive_time_F*2 + as.numeric(moderate1_F)*moderate_time_F
+)
+
+```
+
+for table 2
+```{r}
+
+# Vigorous and moderate activities (VMA)
+VMA <- df_1 %>% mutate(VMA_cond = case_when(
+  exercise <= 30 ~ "< 30 min",
+  exercise > 30 & exercise <= 149 ~ " 30 to 149 min",
+  exercise >150 ~ " > 150 min",
+  exercise == "NA" ~ "NA"),
+                       VMA_F_cond = case_when(
+  exercise_F <= 30 ~ "< 30 min",
+  exercise_F > 30 & exercise <= 149 ~ " 30 to 149 min",
+  exercise_F >150 ~ " > 150 min",
+  exercise_F == "NA" ~ "NA")     )
+
+table(VMA$VMA_cond)
+table(VMA$VMA_F_cond)
+
+
+```
+
+sedentary
+
+```{r}
+
+
+# compute sedentary hours: workday *5 + non-workday *2
+df_1 <- df_1 %>% mutate(
+  sedentary = sedentary1*5 + sedentary2*2,
+  sedentary_F = sedentary1_F*5 + sedentary2_F*2
+)
+
+#hist(df_1$sedentary)
+
+summary(df_1$sedentary)
+var(df_1$sedentary,na.rm = T)
+summary(df_1$sedentary_F)
+var(df_1$sedentary_F,na.rm = T)
+
+
+
+
+```
+
+Walkig time 
+
+```{r}
+
+
+summary(parti_lablled$walking1a)
+
+
+df_1 <- df_1 %>% mutate(
+  walking_average =  case_when(walking1a ==1 ~ 20, 
+                            walking1a ==2 ~ 45,
+                            walking1a ==3 ~ 90,
+                            walking1a ==4 ~ 120),
+  
+  walking_average_F =  case_when(walk2_F ==1 ~ 20, 
+                              walk2_F ==2 ~ 45,
+                              walk2_F ==3 ~ 90,
+                             walk2_F ==4 ~ 120),
+  
+  walking_total = as.numeric(walking1)*walking_average,
+
+  walking_total_F = as.numeric(walk1_F)*walking_average_F
+)
+
+
+summary(df_1$walking_total)
+var(df_1$walking_total,na.rm = T)
+summary(df_1$walking_total_F)
+var(df_1$walking_total_F,na.rm = T)
+```
+
+write out for Table 3 
+
+```{r}
+
+COVID_cleaned <- COVID_cleaned %>% cbind(exercise = df_1$exercise, 
+                                         exercise_F = df_1$exercise_F, 
+                                         sedentary = df_1$sedentary, 
+                                         sedentary_F = df_1$sedentary_F, 
+                                         walking_total = df_1$walking_total,
+                                         walking_total_F = df_1$walking_total_F)
+
+```
+
+
+## COVID impact 
+Q2,7,11a,12 - worried/affected, %
+Q3 - behavior change, self protection 0/1
+Q9 - behavior change, decrease activities, %
+Q13 - attitude about government response, %
+Q14 - agree with government approaches, %
+```{r}
+COVID_impact <- df_1 %>% select(starts_with("COVID")) 
+
+COVID_impact <- COVID_impact %>% mutate(worry = (covid2_1+covid2_2+covid7_1+covid11a_1+covid12_1)/5,
+                                        decrease_act = (covid9_1+covid9_2+covid9_3+covid9_4+covid9_5)/5,
+                                        attituede_ = (covid13_1+covid13_2+covid14_1)/3)
+
+COVID_cleaned <- COVID_cleaned %>% cbind(worry = COVID_impact$worry,
+                                         decrease_activity = COVID_impact$decrease_act,
+                                         dissatisfaction = COVID_impact$attituede_)
+
+summary(COVID_impact$worry)
+summary(COVID_impact$decrease_act)
+summary(COVID_impact$attituede_)
+
+COVID_impact$covid14_1
+
+```
+
+
+## Smoking
+
+```{r}
+
+smoking <- parti_lablled %>% select(starts_with("smoke")) %>% mutate(amount_day = as.integer(smoke1a))
+
+
+table(smoking$smoke1)
+
+smoke_amount <- smoking %>% filter(smoke1 == "Yes" & !is.na(amount_day))
+
+mean(smoke_amount$amount_day)
+
+
+
+```
+
+## drinking 
+
+frequency
+
+```{r}
+Drinking <- parti_lablled %>% select(starts_with("alcohol"), "last7days_alcohol_F", "MarApr_alcohol5_F")
+
+# calculate frequency 
+Drinking <- Drinking %>% mutate(
+  freq_fac =  case_when(alcohol1_2_1 == "Per Year" ~ 1/52, 
+                        alcohol1_2_1 == "Per month" ~ 1/4, 
+                        alcohol1_2_1 == "Weekly" ~ 1),
+  alcohol_freq = (alcohol1_1_1_1)*freq_fac
+)
+
+# time 1 
+summary(Drinking$alcohol_freq)
+var(Drinking$alcohol_freq,na.rm = T)
+
+# March & April
+summary(Drinking$alcohol1_F)
+var(Drinking$alcohol1_F,na.rm = T)
+
+# last week
+summary(Drinking$last7days_alcohol_F)
+var(Drinking$last7days_alcohol_F,na.rm = T)
+
+
+
+COVID_cleaned <- COVID_cleaned %>% cbind(drinking_freq_time1 = Drinking$alcohol_freq, 
+                                         drinking_freq_MarApr = Drinking$alcohol1_F, 
+                                         drinking_freq_lastweek =Drinking$last7days_alcohol_F)
+
+```
+
+
+binge drinking (per week)
+
+```{r}
+
+Binge_drinking <- Drinking %>% mutate(binge_lastyear = as.integer(alcohol2)/52,
+                                      binge_mar_apr = as.integer(MarApr_alcohol5_F)/8,
+                                      binge_7d = as.integer(alcohol2_F)) 
+
+# time 1 (last year?)
+
+summary(Binge_drinking$binge_lastyear)
+var(Binge_drinking$binge_lastyear,na.rm = T)
+
+
+# Mar & Apr
+
+
+summary(Binge_drinking$binge_mar_apr)
+var(Binge_drinking$binge_mar_apr,na.rm = T)
+
+# last week
+
+summary(Binge_drinking$binge_7d)
+var(Binge_drinking$binge_7d,na.rm = T)
+
+
+COVID_cleaned <- COVID_cleaned %>% cbind(binge_drinking_time1 = Binge_drinking$binge_lastyear, 
+                                         binge_drinking_MarApr = Binge_drinking$binge_mar_apr, 
+                                         binge_drinking_lastweek =Binge_drinking$binge_7d)
+
+```
+
+
+## media consumption
+
+```{r}
+
+
+Media <- df_1 %>% select(starts_with("media"))
+
+summary(Media)
+
+
+```
+
+
+## Seeking Help
+
+```{r}
+
+Seek_help <- parti_lablled %>% select(starts_with("seek")) 
+  
+  
+write.csv(Seek_help, "Seek_help_0127.csv",row.names = F, fileEncoding = "UTF-8")
+
+getwd()
+
+```
+
+
+## additional Qs for sleep problems - graphs
+
+
+adds1
+```{r not used, eval=FALSE, include=FALSE}
+
+add <- parti_lablled %>% select(starts_with("add")) %>% 
+                         mutate(adds1_ = case_when(
+                           adds1 == "Before 2019" ~ "Before 2019",
+                           adds1 == "BetweenJan 01 2019 and March 31 2019" ~ "2019 S1",
+                           adds1 == "Between April 01 2019 and June 30 2019" ~ "2019 S2",
+                           adds1 == "Between July 01 2019 and September 30 2019" ~ "2019 S3",
+                           adds1 == "Between October 01 2019 and Dec 31 2019 " ~ "2019 S4",
+                           adds1 == "Between Jan 01 2020 and March 31 2020" ~ "2020 S1",
+                           adds1 == "After April 01 2020" ~ "After 2020 S1"))
+
+```
+
+
+```{r}
+
+insomnia_onset <- data.frame(Time = c("Before 2019","2019 S1", "2019 S2", "2019 S3", "2019 S4", "2020 S1", "After 2020 S1"),
+                             value = c(112, 14, 60, 110, 70, 189, 38))
+
+head(insomnia_onset)
+
+ggplot(insomnia_onset, aes(x = "", y=value, fill=Time)) +
+  geom_bar(width = 1,stat="identity") +
+  coord_polar("y",start=0) +
+  fill_palette(palette =  "uchicago") +
+  geom_text(aes(label = value),
+            position = position_stack(vjust = 0.5),
+            size = 4.7) +
+  labs(title = "Onset time of Sleep problems",
+       y = "" )
+
+
+
+```
+
+adds2 & adds3
+
+```{r}
+
+insomnia_cause <- parti_lablled %>% select(starts_with("adds2"), starts_with("adds3")) %>%
+  mutate(Cause = case_when(adds2 == "yes" & adds3 == "Yes" ~ "Both",
+                           adds2 == "yes" & adds3 == "No" ~ "Protests",
+                           adds2 == "no" & adds3 == "Yes" ~ "COVID_19 Outbreak",
+                           adds2 == "no" & adds3 == "No" ~ "Neither")
+          ) %>% 
+  group_by(Cause)  %>%
+  count()
+         
+insomnia_cause <- drop_na(insomnia_cause)
+
+
+ggplot(insomnia_cause, aes(x = "", y=n, fill=Cause)) +
+  geom_bar(width = 1,stat="identity") +
+  coord_polar("y",start=0) +
+  fill_palette(palette =  "uchicago") +
+  geom_text(aes(label = n),
+            position = position_stack(vjust = 0.5),
+            size = 4.7) +
+  labs(title = "Cause of Sleep problems",
+       y = "" )
+
+
+```
+
+
+
+adds4 
+
+```{r}
+
+adds4 <- parti_lablled %>% select(starts_with("adds4")) 
+
+
+
+
+  
+write.csv(adds4, "adds4_reason_for_sleep_prob_0127.csv",row.names = F, fileEncoding = "UTF-8")
+
+
+
+
+```
+
+
+
+
+
+## other unused lifestyle data
+```{r}
+
+
+descriptive_ <- df_1 %>% select(starts_with("add"),starts_with("social"),ends_with("impact"))
+
+
+COVID_cleaned <- COVID_cleaned %>% cbind(descriptive_[1:length(colnames(descriptive_))])
+
+write.csv(COVID_cleaned, "additional_variable_cleaned_0127.csv",row.names = F, fileEncoding = "UTF-8")
+
+
+
+
+```
+

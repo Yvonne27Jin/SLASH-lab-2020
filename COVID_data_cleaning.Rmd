@@ -1,0 +1,857 @@
+---
+title: "COVID_Sleep_survey_data_cleaning"
+author: "Yvonne JIN"
+date: "2020/9/8"
+output:
+  html_document:
+    df_print: paged
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Import data
+
+
+```{r prep, message=FALSE, warning=FALSE, include=FALSE}
+#Libraries
+library(haven)
+library(tidyverse)
+library(tidyr)
+library(ggplot2)
+
+
+#Set Working Directory
+setwd("C:/Users/jinya/OneDriveq - connect.hku.hk/SLASH Lab/COVID and Sleep data")
+
+
+#Reading source files
+df <- read_spss("merged_Survey on Sleep Health+followedup.sav")
+
+#write.csv(df,"merged_survey.csv",fileEncoding = UTF-8)
+#colnames(df)
+```
+
+Filter out non-complete individual
+
+```{r finish, echo=TRUE, message=TRUE, warning=FALSE}
+
+df %>% group_by(Finished) %>%
+  count()
+# 986 finished out of 1633
+
+df_1 <- filter(df,Finished == 1) 
+
+## add Demographic data to cleaned data frame
+COVID_cleaned <- df_1[c("SCOV_ID", "Gender", "Age", "Ethnicity", "Marital", "Education", "Occupation", "income", "household_size")]
+
+#change coding value of occupation: 1, 32, 33, 34, 35 -> 1,2,3,4,5
+#COVID_cleaned <- mutate(COVID_cleaned,Occupation = ifelse(Occupation == 32, 2, ifelse(Occupation == 33, 3, ifelse(Occupation == 34, 4,ifelse(Occupation == 35, 5, 1)))))
+
+# HK residence : 2 -> yes, 3 -> no
+COVID_cleaned$HK_residence <- ifelse(df_1$Eli1 == 2, T, F)
+
+COVID_cleaned$stayed_InHK <- ifelse(df_1$Eli2 == 1, T, F)
+
+```
+
+
+
+## comuting PSQI Score
+```{r PSQI, echo=TRUE, warning=FALSE}
+
+#Calculate PSQI scores
+PSQI_temp <- select(df_1, SCOV_ID, starts_with("PSQI")& !ends_with("_F"))
+
+#Compute C1: Subjective sleep quality
+# Q11 in 1st survey, Q12 in follow-up survey
+PSQI_temp <- mutate(PSQI_temp, C1 = PSQI11)
+
+
+#compute C2: Sleep latency
+#Compute C2a: 
+#time needed to fall asleep (DIS)
+# if fill in hours but not minutes, taken as 0
+PSQI_temp <- mutate(PSQI_temp, 
+                    PSQI4_1_1a = ifelse(is.na(PSQI4_1_1), 0, PSQI4_1_1),
+                    PSQI4_2_1a = ifelse(is.na(PSQI4_2_1), 0, PSQI4_2_1),
+                    DIS = PSQI4_1_1a * 60 + PSQI4_2_1a)
+PSQI_temp <- mutate(PSQI_temp, C2a = case_when(DIS <= 15 ~ 0, DIS %in% 16:30 ~ 1, DIS %in% 31:60 ~ 2, DIS > 60 ~ 3))
+#Compute C2b: DIS + Q5a (Q6_1) trouble fall asleep within 30min
+PSQI_temp <- mutate(PSQI_temp, C2b = C2a + PSQI6_1)
+#Compute C2
+PSQI_temp <- mutate(PSQI_temp, C2 = case_when(C2b == 0 ~ 0, C2b %in% 1:2 ~ 1, C2b %in% 3:4 ~ 2, C2b > 4 ~ 3))
+
+
+
+#Compute C3: Sleep duration
+#Compute sleep duration (SD)
+# if specified hours but not minutes, taken PSQI5_2_1 as 0
+PSQI_temp <- mutate(PSQI_temp, SD = ifelse(!is.na(PSQI5_2_1),PSQI5_1_1 + PSQI5_2_1/60,PSQI5_1_1))
+PSQI_temp <- mutate(PSQI_temp, C3 = ifelse(SD >= 7, 0,
+                                    ifelse(SD >= 6, 1,
+                                    ifelse(SD >= 5, 2, 3))))
+
+#Compute C4:  Sleep efficiency
+#  Sleep efficiency = (# hours slept/# hours in bed) X 100%  //hours? I used minutes
+
+#Compute time in bed
+# mutate NA->0 for minutes (PSQI3_2_1, PSQI_2_2_1)
+PSQI_temp <- mutate(PSQI_temp, PSQI2_2_1a = ifelse(is.na(PSQI2_2_1),0,PSQI2_2_1),
+                               PSQI3_2_1a = ifelse(is.na(PSQI3_2_1),0,PSQI3_2_1))
+PSQI_temp <- mutate(PSQI_temp, bedtime_a = (PSQI3_1_1*60 + PSQI3_2_1a - PSQI2_1_1*60 - PSQI2_2_1a),
+                               bedtime = ifelse(bedtime_a>0, bedtime_a, (24*60+bedtime_a))) # add one day if negative # don't use hours: floor division lost decimal.
+                              
+#Compute sleep duration in minutes
+# if specified hours but not minutes, taken PSQI5_2_1 as 0
+PSQI_temp <- mutate(PSQI_temp, sleeptime = ifelse(!is.na(PSQI5_2_1),PSQI5_1_1*60 + PSQI5_2_1,PSQI5_1_1*60))
+
+#Compute SE
+PSQI_temp <- mutate(PSQI_temp, SE = sleeptime/bedtime)
+PSQI_temp <- mutate(PSQI_temp, C4 = ifelse(SE >= 0.85, 0,
+                                    ifelse(SE >= 0.75, 1,
+                                    ifelse(SE >= 0.65, 2, 3))))
+
+
+
+#Compute C5:  Sleep disturbance
+#Compute accumulative scores
+PSQI_temp <- mutate(PSQI_temp, C5a = PSQI6_2+PSQI6_3+PSQI6_4+PSQI6_5+PSQI6_6+PSQI6_7+PSQI6_8+PSQI6_9)
+PSQI_temp <- mutate(PSQI_temp, C5b = ifelse(PSQI7 == 1, C5a + PSQI7b, C5a)) # other causes
+
+PSQI_temp <- mutate(PSQI_temp, C5 = ifelse(C5b == 0, 0,
+                                    ifelse(C5b <= 9, 1,
+                                    ifelse(C5b <= 18, 2, 3))))
+
+
+#Compute C6: Use of sleep medication
+PSQI_temp <- mutate(PSQI_temp, C6 = ifelse(is.na(PSQI8),0,PSQI8))
+
+
+
+#Compute C7: Daytime dysfunction
+#Compute C7a
+PSQI_temp <- mutate(PSQI_temp, 
+                    PSQI9a = ifelse(is.na(PSQI9),0,PSQI9),
+                    PSQI10a = ifelse(is.na(PSQI10),0,PSQI10),
+                    C7a = PSQI9a + PSQI10a)
+PSQI_temp <- mutate(PSQI_temp, C7 = ifelse(C7a %in% 1:2, 1,
+                                    ifelse(C7a %in% 3:4, 2, 3)))
+#Compute PSQI composite score for each participant
+PSQI_temp <- mutate(PSQI_temp, PSQI_total = C1 + C2 + C3 + C4 + C5 + C6 + C7, sleep_duration = sleeptime)  
+PSQI_score <- PSQI_temp %>% drop_na(PSQI_total,sleep_duration)
+
+#glimpse(PSQI_score)
+
+
+#install.packages("psy")
+library(psy)
+
+PSQI_alpha <- select(PSQI_temp, C1, C2, C3, C4, C5, C6, C7, PSQI_total)
+
+cronbach(PSQI_alpha)
+
+
+```
+
+```{r}
+
+# export data 
+PSQI_score <- left_join(PSQI_score, df, by = "SCOV_ID") # 710 individual # 838 after manually checking for NA
+write.csv(PSQI_score, "PSQI_unfiltered_score.csv")
+
+PSQI_na <- filter(PSQI_temp, is.na(PSQI_total)) #795
+write.csv(PSQI_na,"PSQI_unfiltered_na.csv")
+
+
+```
+
+```{r}
+# export data_filterd "Finish ==1"
+write.csv(PSQI_score, "PSQI_filtered_score.csv") # 599 individual # 896 after manually checking for NA
+
+
+# export NA
+PSQI_na <- filter(PSQI_temp, is.na(PSQI_total)) # 388 -> 90
+write.csv(PSQI_na,"PSQI_na_checked.csv")
+
+
+```
+
+
+
+follow up survey
+
+```{r echo=FALSE}
+
+#Calculate PSQI scores
+PSQI_F_temp <- select(df_1, SCOV_ID, starts_with("PSQI") & ends_with("_F"))
+
+#Compute C1: Subjective sleep quality
+# Q11 in 1st survey, Q12 in follow-up survey
+PSQI_F_temp <- PSQI_F_temp %>% 
+  mutate(PSQI1_2_1_Fa = ifelse(is.na(PSQI1_2_1_F),0,PSQI1_2_1_F),# go to sleep
+         PSQI2_2_1_Fa = ifelse(is.na(PSQI2_2_1_F),0,PSQI2_2_1_F),# get up
+         PSQI3_1_1_Fa = ifelse(is.na(PSQI3_1_1_F),0,PSQI3_1_1_F),
+         PSQI3_2_1_Fa = ifelse(is.na(PSQI3_2_1_F),0,PSQI3_2_1_F), # falling asleep
+         PSQI4_2_1_Fa = ifelse(is.na(PSQI4_2_1_F),0,PSQI4_2_1_F), #sleep duration
+         PSQI9_Fa = ifelse(is.na(PSQI9_F),0,PSQI9_F), # sleep medicine
+         PSQI10_Fa = ifelse(is.na(PSQI10_F),0,PSQI10_F),
+         PSQI11_Fa = ifelse(is.na(PSQI11_F),0,PSQI11_F), # daytime disfunction
+         
+        
+         C1 = PSQI12_F, # subjective quality
+         DIS = PSQI3_1_1_F * 60 + PSQI3_2_1_Fa, 
+         C2a = case_when(DIS <= 15 ~ 0, DIS %in% 16:30 ~ 1, DIS %in% 31:60 ~ 2, DIS > 60 ~ 3),
+         C2b = C2a + PSQI5_1_F,
+         C2 = case_when(C2b == 0 ~ 0, C2b %in% 1:2 ~ 1, C2b %in% 3:4 ~ 2, C2b > 4 ~ 3),
+         SD = PSQI4_1_1_F + PSQI4_2_1_Fa/60, # sleep duration
+         C3 = ifelse(SD >= 7, 0,
+                                    ifelse(SD >= 6, 1,
+                                    ifelse(SD >= 5, 2, 3))),
+         bedtime_a = (PSQI2_1_1_F*60 + PSQI2_2_1_Fa - PSQI1_1_1_F*60 - PSQI1_2_1_Fa),
+         bedtime = ifelse(bedtime_a>0, bedtime_a, (24*60+bedtime_a)),
+         sleeptime = PSQI4_1_1_F*60 + PSQI4_2_1_Fa,
+         SE = sleeptime/bedtime,
+         C4 = ifelse(SE >= 0.85, 0,
+                     ifelse(SE >= 0.75, 1,
+                     ifelse(SE >= 0.65, 2, 3))),
+         C5a = PSQI5_2_F+PSQI5_3_F+PSQI5_4_F+PSQI5_5_F+PSQI5_6_F+PSQI5_7_F+PSQI5_8_F+PSQI5_9_F,
+         C5b = ifelse(PSQI6_F == 1, C5a + PSQI8_F, C5a), # other causes
+         C5 = ifelse(C5b == 0, 0,
+                     ifelse(C5b <= 9, 1,
+                     ifelse(C5b <= 18, 2, 3))),
+         C6 = PSQI9_Fa,
+         C7a = PSQI10_Fa + PSQI11_Fa,
+         C7 = ifelse(C7a %in% 1:2, 1,
+                                    ifelse(C7a %in% 3:4, 2, 3)))
+         
+         
+         
+
+#Compute PSQI composite score for each participant
+PSQI_F_temp <- mutate(PSQI_F_temp, PSQI_total = C1 + C2 + C3 + C4 + C5 + C6 + C7, sleep_duration = sleeptime) 
+PSQI_F_score <- PSQI_F_temp %>% drop_na(PSQI_total,sleep_duration)
+
+#glimpse(PSQI_F)
+
+
+PSQI_F_alpha <- select(PSQI_F_temp, C1, C2, C3, C4, C5, C6, C7, PSQI_total)
+
+cronbach(PSQI_F_alpha)
+
+
+```
+
+
+```{r}
+
+# export data # unfiltered
+PSQI_F_score <- left_join(PSQI_F_score, df, by = "SCOV_ID") # 357 individual
+#write.csv(PSQI_F_score, "PSQI_F_unfiltered_score.csv")
+#NA
+PSQI_F_na <- filter(PSQI_F_temp, is.na(PSQI_total)) # 1276
+#write.csv(PSQI_na,"PSQI_unfiltered_na.csv") # all additonal are non-finished individuals. same.
+
+
+```
+
+```{r}
+# export data_filterd "Finish ==1"
+write.csv(PSQI_F_score, "PSQI_F_filtered_score.csv") # 357 individual -> 463
+
+
+# export NA
+PSQI_F_na <- filter(PSQI_F_temp, is.na(PSQI_total)) # 629 -> 523
+write.csv(PSQI_F_na,"PSQI_F_na.csv")
+
+
+```
+
+
+```{r join dataframes, echo=TRUE}
+
+#PSQI_compare <- demographic %>% 
+#  left_join(PSQI_score, by = "SCOV_ID") %>%
+#  left_join(PSQI_F,by = "SCOV_ID")
+
+
+# Add score to cleaned data frame
+COVID_cleaned <- COVID_cleaned %>% cbind(PSQI_total = PSQI_temp$PSQI_total, Sleep_duration = PSQI_temp$sleep_duration, 
+                                         PSQI_F_total = PSQI_F_temp$PSQI_total, Sleep_F_duration =PSQI_F_temp$sleep_duration)
+
+
+```
+
+
+```{r for viz, include=FALSE}
+
+demographic <- df_1[c("SCOV_ID", "Gender", "Age", "Ethnicity", "Marital", "Education", "Occupation", "income", "household_size")]
+
+
+# add columns
+PSQI_0 <- demographic %>%
+  cbind(PSQI_total = PSQI_temp$PSQI_total, Sleep_duration = PSQI_temp$sleep_duration) 
+PSQI_0$status <- 0
+
+PSQI_1 <- demographic %>%
+  cbind(PSQI_total = PSQI_F_temp$PSQI_total, Sleep_duration =PSQI_F_temp$sleep_duration)
+PSQI_1$status <- 1
+
+PSQI_m <- left_join(PSQI_0,PSQI_1,by = "SCOV_ID") %>% drop_na(PSQI_total.y)
+PSQI_m$change <- PSQI_m$PSQI_total.y - PSQI_m$PSQI_total.x
+
+
+PSQI_compare <- rbind(PSQI_0,PSQI_1)
+
+
+PSQI_compare <- PSQI_compare %>% drop_na(PSQI_total)
+  
+            
+```
+
+
+Plot PSQI comparison 
+```{r PSQI compasion, echo=FALSE}
+
+ggplot(PSQI_m) +
+  aes(x = change) +
+  geom_histogram(binwidth = 1)
+
+
+ggplot(PSQI_m) +
+  aes(x = change, fill = factor(Gender.x)) +
+  geom_histogram(binwidth = 1) +
+  scale_fill_brewer(palette = "Blues")
+
+ggplot(PSQI_m) +
+  aes(x = change, fill = factor(Education.x)) +
+  geom_histogram(binwidth = 1) +
+  scale_fill_brewer(palette = "Blues")
+
+ggplot(PSQI_m) +
+  aes(x = change, fill = factor(income.x)) +
+  geom_histogram(binwidth = 1) +
+  scale_fill_brewer(palette = "RdBu")
+
+
+ggplot(PSQI_m) +
+  aes(x = change, fill = factor(Marital.x)) +
+  geom_histogram(binwidth = 1) +
+  scale_fill_brewer(palette = "Blues")
+  
+```
+
+```{r echo=FALSE}
+
+ggplot(PSQI_compare) +
+  aes(x = factor(Age), y = PSQI_total, color = factor(status))  +
+  geom_boxplot()
+
+# Ethinicity?
+ggplot(PSQI_compare) +
+  aes(x = factor(Ethnicity), y = PSQI_total, color =  factor(status))  +
+  geom_boxplot()
+
+# Marital status 
+ggplot(PSQI_compare) +
+  aes(x = factor(Marital), y = PSQI_total, color =  factor(status))  +
+  geom_boxplot()
+
+# Education 
+ggplot(PSQI_compare) +
+  aes(x = factor(Education), y = PSQI_total, color =  factor(status))  +
+  geom_boxplot()
+
+# Income
+ggplot(PSQI_compare) +
+  aes(x = factor(income), y = PSQI_total, color =  factor(status))  +
+  geom_boxplot()
+
+# household size
+ggplot(PSQI_compare) +
+  aes(x = factor(household_size), y = PSQI_total, color =  factor(status))  +
+  geom_boxplot()
+
+
+```
+
+
+
+## DASS
+
+
+```{r DASS, echo=TRUE}
+
+###before---
+
+#Calculate DASS_dep scores for each participant and filter out NAs
+df_1 <- mutate(df_1, DASS_dep_total = 2*(DASS_3+DASS_5+DASS_10+DASS_13+DASS_16+DASS_17+DASS_21))
+
+#Calculate DASS_anx scores for each participant and filter out NAs
+df_1 <- mutate(df_1, DASS_anx_total = 2*(DASS_2+DASS_4+DASS_7+DASS_9+DASS_15+DASS_19+DASS_20))
+
+#Calculate DASS_str scores for each participant and filter out NAs
+df_1 <- mutate(df_1, DASS_str_total = 2*(DASS_1+DASS_6+DASS_8+DASS_11+DASS_12+DASS_14+DASS_18))
+
+# compute DASS total score, max = 21*3*2 = 126
+df_1 <- mutate(df_1, DASS_total = DASS_dep_total + DASS_anx_total + DASS_str_total)
+
+df_1 %>% ggplot() +
+  aes(x = DASS_total) +
+  geom_histogram(bins = 100) +
+  labs(title = "DASS Total score")
+  
+DASS_alpha <- select(df_1, starts_with("DASS_") & !ends_with("_F") & !ends_with("total"))
+
+DASS_alpha <- cbind(DASS_alpha, df_1$DASS_total)
+
+cronbach(DASS_alpha)
+
+#summary(df_1$DASS_total)
+
+```
+
+
+
+```{r}
+# export data_filtered "Finish ==1"
+write.csv(df_1, "DASS_filtered_score.csv") # individual
+
+
+# export NA
+DASS_na <- filter(df_1, is.na(DASS_total))
+write.csv(DASS_na,"DASS_na.csv")
+
+
+```
+
+
+
+Follow up survey
+
+```{r DASS_F, echo=FALSE}
+####Follow up -----
+
+#Calculate DASS_dep scores for each participant and filter out NAs
+df_1 <- mutate(df_1, DASS_dep_F_total = 2*(DASS_3_F+DASS_5_F+DASS_10_F+DASS_13_F+DASS_16_F+DASS_17_F+DASS_21_F))
+
+#Calculate DASS_anx scores for each participant and filter out NAs
+df_1 <- mutate(df_1, DASS_anx_F_total = 2*(DASS_2_F+DASS_4_F+DASS_7_F+DASS_9_F+DASS_15_F+DASS_19_F+DASS_20_F))
+
+#Calculate DASS_str scores for each participant and filter out NAs
+df_1 <- mutate(df_1, DASS_str_F_total = 2*(DASS_1_F+DASS_6_F+DASS_8_F+DASS_11_F+DASS_12_F+DASS_14_F+DASS_18_F))
+
+## DASS 22_a?
+
+# compute DASS total score
+df_1 <- mutate(df_1, DASS_F_total = DASS_dep_F_total + DASS_anx_F_total + DASS_str_F_total)
+
+#na.exclude(df_1)
+
+df_1 %>% ggplot() +
+  aes(x = DASS_F_total) +
+  geom_histogram(bins = 100) +
+  labs(title = "DASS Total score_Follow up")
+
+summary(df_1$DASS_F_total)
+
+####
+
+DASS_F_alpha <- select(df_1, starts_with("DASS_") & ends_with("_F") & !ends_with("total"))
+
+DASS_F_alpha <- cbind(DASS_F_alpha, df_1$DASS_F_total)
+
+cronbach(DASS_F_alpha)
+
+
+# 503 NA!
+```
+
+
+```{r}
+
+# export data 
+DASS_score <- left_join(PSQI_score, df, by = "SCOV_ID") # 710 individual
+write.csv(PSQI_score, "PSQI_unfiltered_score.csv")
+
+DASS_na <- filter(df_1, is.na(DASS_total))
+write.csv(PSQI_na,"DASS_unfiltered_na.csv")
+
+
+```
+
+```{r}
+# export data_filterd "Finish ==1"
+write.csv(df_1, "DASS_F_filtered_score.csv") # individual
+
+
+# export NA
+DASS_F_na <- filter(df_1, is.na(DASS_F_total))
+write.csv(DASS_F_na,"DASS_F_na.csv")
+
+
+```
+
+
+```{r DASS_add, echo=TRUE}
+
+# addd to cleaned data frame
+
+COVID_cleaned <- COVID_cleaned %>% cbind(DASS_total = df_1$DASS_total, 
+                                         DASS_F_total = df_1$DASS_F_total)
+
+
+```
+
+
+
+Merge the two data set and compare
+```{r echo=FALSE}
+
+### Compare ###
+# in a different data frame
+
+DASS_before <- df_1[c("SCOV_ID", "Gender", "Age", "Ethnicity", "Marital", "Education", "Occupation", "income", "household_size","DASS_total")]
+
+colnames(DASS_before) = c("SCOV_ID", "Gender", "Age", "Ethnicity", "Marital", "Education", "Occupation", "income", "household_size","DASS_score")
+
+DASS_before$status <- 0
+
+#rename(DASS_before, DASS_score = DASS_total) ?
+
+
+
+DASS_after <- df_1[c("SCOV_ID", "Gender", "Age", "Ethnicity", "Marital", "Education", "Occupation", "income", "household_size",DASS_Score = "DASS_F_total")]
+
+colnames(DASS_after) = c("SCOV_ID", "Gender", "Age", "Ethnicity", "Marital", "Education", "Occupation", "income", "household_size",DASS_Score = "DASS_score")
+
+DASS_after$status <- 1
+
+#names(DASS_after[10])[1] <- "DASS_Score"
+#rename(DASS_after, DASS_score = DASS_F_total)
+
+DASS_compare <- rbind(DASS_before, DASS_after) %>% drop_na
+
+
+ggplot(DASS_compare) +
+  aes(x = factor(status), y = DASS_score)  +
+  geom_boxplot()
+
+
+# Age and DASS
+ggplot(DASS_compare) +
+  aes(x = factor(Age), y = DASS_score, color =  factor(status))  +
+  geom_boxplot()
+
+# Ethinicity?
+ggplot(DASS_compare) +
+  aes(x = factor(Ethnicity), y = DASS_score, color =  factor(status))  +
+  geom_boxplot()
+
+# Marital status 
+ggplot(DASS_compare) +
+  aes(x = factor(Marital), y = DASS_score, color =  factor(status))  +
+  geom_boxplot()
+
+# Education 
+ggplot(DASS_compare) +
+  aes(x = factor(Education), y = DASS_score, color =  factor(status))  +
+  geom_boxplot()
+
+# Income
+ggplot(DASS_compare) +
+  aes(x = factor(income), y = DASS_score, color =  factor(status))  +
+  geom_boxplot()
+
+# household size
+ggplot(DASS_compare) +
+  aes(x = factor(household_size), y = DASS_score, color =  factor(status))  +
+  geom_boxplot()
+```
+
+## ISI score
+```{r}
+df_1 <- df_1 %>%mutate(ISI_total = ISI1_1 + ISI1_2 + ISI1_3 + ISI2_1 + ISI3_1 + ISI4_1 + ISI5_1)
+
+df_1 <- df_1 %>%mutate(ISI_F_total = ISI_1_1_F + ISI_1_2_F + ISI_1_3_F + ISI_2_1_F + ISI_3_1_F + ISI_4_1_F + ISI_5_1_F)
+
+COVID_cleaned <- COVID_cleaned %>% cbind(ISI_total = df_1$ISI_total)
+
+COVID_cleaned <- COVID_cleaned %>% cbind(ISI_F_total = df_1$ISI_F_total)
+
+hist(df_1$ISI_total, breaks = 30)
+
+hist(df_1$ISI_F_total, breaks = 30)
+
+
+ISI_alpha <- select(df_1, starts_with("ISI") & !ends_with("_F"))
+
+ISI_F_alpha <- select(df_1, starts_with("ISI") & ends_with("_F"))
+
+ISI_alpha <-sapply(ISI_alpha, as.integer)
+
+ISI_F_alpha <-sapply(ISI_F_alpha, as.integer)
+
+
+ISI_compare <- select(df_1,ISI, ISI_total)
+
+ISI_F_compare <- select(df_1,ISI_F, ISI_F_total)
+
+cronbach(ISI_alpha)
+
+cronbach(ISI_F_alpha)
+
+
+```
+
+
+## Quality of Life 
+```{r}
+
+df_1 <- df_1 %>%mutate(QoL_score = QoL_1 + QoL_2 + QoL_3 + QoL_4 + QoL_5)
+
+df_1 <- df_1 %>%mutate(QoL_F_score = QoL1_1_F + QoL1_2_F +  QoL1_3_F + QoL1_4_F + QoL1_5_F)
+
+COVID_cleaned <- COVID_cleaned %>% cbind(QoL_score = df_1$QoL_score)
+
+COVID_cleaned <- COVID_cleaned %>% cbind(QoL_F_score = df_1$QoL_F_score)
+
+hist(df_1$QoL_score, breaks = 35)
+
+hist(df_1$QoL_F_score, breaks = 35)
+
+```
+
+
+
+## Height and Weight
+```{r} 
+
+# height: convert inch to cm
+df_1 <- df_1 %>% mutate(Height = ifelse(height_2_1 == 1, height_1_1_1, height_1_1_1 * 2.54)) 
+
+# add to cleaned data 
+COVID_cleaned <- COVID_cleaned %>% cbind(Height = df_1$Height)
+
+# weight: convert pound to kg
+df_1 <- df_1 %>% mutate(Weight = ifelse(weight_2_1 == 2, weight_1_1_1, weight_1_1_1 * 0.45359237)) 
+
+COVID_cleaned <- COVID_cleaned %>% cbind(Weight = df_1$Weight)
+
+# Weight_F:follow up study
+df_1 <- df_1 %>% mutate(Weight_F = ifelse(weight_2_1_F == 2, weight_1_1_1_F, weight_1_1_1_F * 0.45359237)) 
+
+COVID_cleaned <- COVID_cleaned %>% cbind(Weight_F = df_1$Weight_F)
+
+
+```
+
+
+
+## physical activity level
+#do it seperately
+
+
+```{r physical activity}
+
+#COVID_cleaned <- COVID_cleaned %>% cbind(strenuous_act1 = df_1$strenuous_act1, strenuous_act1a = df_1$strenuous_act1a, moderate_act1 = df_1$moderate_act1, moderate_act1a = df_1$moderate_act1a, walking1 = df_1$walking1 )
+
+
+lapply(na.exclude(df_1$strenuous_act1a), duration_conversion)
+
+# compute active exercising time (in minutes), intensive activity cound as twice of moderate act
+df_1 <- df_1 %>% mutate(
+  intensive_time =  case_when(strenuous_act1a ==1 ~ 20, strenuous_act1a ==2 ~ 45,strenuous_act1a ==3 ~ 90,strenuous_act1a ==4 ~ 120),
+  moderate_time = case_when(moderate_act1a ==1 ~ 20, moderate_act1a ==2 ~ 45,moderate_act1a ==3 ~ 90,moderate_act1a ==4 ~ 120),
+  exercise = as.numeric(strenuous_act1)*intensive_time*2 + as.numeric(moderate_act1)*moderate_time,
+  
+  intensive_time_F =  case_when(strenuous2_F ==1 ~ 20, strenuous2_F ==2 ~ 45,strenuous2_F ==3 ~ 90,strenuous2_F ==4 ~ 120),
+  moderate_time_F = case_when(moderate2_F ==1 ~ 20, moderate2_F ==2 ~ 45,moderate2_F ==3 ~ 90,moderate2_F ==4 ~ 120),
+  exercise_F = as.numeric(strenuous1_F)*intensive_time_F*2 + as.numeric(moderate1_F)*moderate_time_F
+  )
+
+# compute sedentary hours: workday *5 + non-workday *2
+df_1 <- df_1 %>% mutate(
+  sedentary = sedentary1*5 + sedentary2*2,
+  sedentary_F = sedentary1_F*5 + sedentary2_F*2
+  )
+ 
+
+COVID_cleaned <- COVID_cleaned %>% cbind(exercise = df_1$exercise, exercise_F = df_1$exercise_F, sedentary = df_1$sedentary, sedentary_F = df_1$sedentary_F)
+
+
+#strenuous_act:
+#walking:
+#sedentary:
+
+```
+
+
+## filter only non-NA data and output to a CSV file
+```{r echo=TRUE}
+
+COVID_na_rm <- COVID_cleaned %>% drop_na(PSQI_total,PSQI_F_total,DASS_total, DASS_F_total)
+
+glimpse(COVID_na_rm)
+
+write.csv(COVID_na_rm, "Score_Demographic_cleaned.csv",row.names = F, fileEncoding = "UTF-8")
+
+
+```
+
+
+
+## append descriptive questions
+```{r}
+
+descriptive_ <- df_1 %>% select(starts_with("add"),starts_with("seek"),starts_with("media"),starts_with("COVID"),starts_with("social"),starts_with("alcohol"),starts_with("smoke"),ends_with("impact"),starts_with("phyhealth"))
+
+length(colnames(descriptive_))
+?length
+
+COVID_cleaned <- COVID_cleaned %>% cbind(descriptive_[1:length(colnames(descriptive_))])
+
+COVID_na_rm <- COVID_cleaned %>% drop_na(PSQI_total,PSQI_F_total,DASS_total, DASS_F_total)
+
+write.csv(COVID_cleaned, "COVID_cleaned.csv",row.names = F, fileEncoding = "UTF-8")
+
+save.image(file='COVID_cleaned.RData')
+
+```
+
+
+
+
+
+
+## Codebook
+see another pdf file for detailed description and corresponding variable value
+
+
+
+
+Gender: 1-male, 2-female
+
+
+Age, "Ethnicity", "Marital", "Education", "Occupation", "income", "household_size"
+
+Eli1: Hong Kong Residence (non) permanent
+
+Eli2: stayed in Hong Kong for most of the time in the past year
+
+PSQI：
+Q1 night shift -> exclude for irregular sleep
+C4: bed time = (wakeup-gotosleep) + wake time? ambiguous wording? not add awake time in the doc I found
+C5: Kris - 5.1 +..+ 5.8 , doc - 5.2 +..+ 5.9 + else
+attrition: 1- 360/606
+
+ISI: sum of the 7 items;
+
+Seek:
+show distribution for different choices
+
+media: media consumption about COVID-19 and social movements
+remain unttached
+
+COVID:
+form a score
+
+Social: 
+
+
+DASS: 
+as dependent variable & independent
+look at sub-scale too
+(adjusted P value)
+same as HABEAT, but score goes down in follow up survey
+attrition: 1- 483/933
+
+QoL: sum of the 5 items;
+
+weight:
+weight_2_1:
+1 - Pounds
+2 - kg
+1 lbs = 0.45359237 kg
+1 kg = 2.20462262 lbs
+
+height:
+height_2_1:
+1 - cm
+2 - feet/inches
+1 feet = 30.48 cm = 12 inches
+1 inch = 2.54 cm
+
+（physical activity：）
+
+strenuous_act:
+walking:
+sedentary:
+
+alcohol:
+1 - frequency
+2 - fre binge drinking 
+
+smoke:
+
+social_impact:
+
+virus_impact:
+
+physical_health:
+
+source:
+
+---------follow up-----
+
+PSQI: question listing slightly shifted from 1st survey
+
+ISI: ''
+
+DASS: ''
+
+QoL: ''
+
+strenuous_act:
+
+walking:
+
+sedentary:
+
+Weight_F:
+
+alcohol:
+
+mayMarch/last7d
+
+binge-drinking
+
+retrospection
+trend? pattern? 
+correlation
+
+media:
+
+interestonlineinterv_F:
+
+SC1:
+
+ISI:
+
+
+-----------------------
+
+
+composite 
+- media
+- COVID
+- phisical activity (multiply? add?)
+- lifestyle (alcohol, smoking)
+
+correlation 
+
+regression 
+(DASS, controling for baseline)

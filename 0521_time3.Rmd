@@ -1,0 +1,257 @@
+---
+title: "0521_time3"
+author: "Yvonne JIN"
+date: "5/21/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(foreign)
+library(haven)
+library(tidyverse)
+library(tidyr)
+library(ggplot2)
+library(lavaan)
+library(apaTables)
+```
+
+## time 3 cleaning
+
+
+```{r cars}
+
+library(haven)
+df <- read_sav("C:/Users/jinya/OneDrive - connect.hku.hk/SLASH Lab/COVID and Sleep data/5.20/merged 1+2+3 cleared.sav")
+View(merged_1_2_3_cleared)
+
+#library(haven)
+#merged_1_2_3_contact_deleted <- read_sav("C:/Users/jinya/OneDrive - connect.hku.hk/SLASH Lab/COVID and Sleep data/5.20/merged 1+2+3 contact deleted.sav")
+#View(merged_1_2_3_contact_deleted)
+
+
+```
+
+Eligibility & consent check - not in time3
+```{r}
+
+COVID_cleaned <- df["SCOV_ID"]
+
+```
+
+
+```{r DASS}
+
+DASS_temp <- select(df, SCOV_ID, starts_with("DASS")& !ends_with("_F"))
+
+# check no. of NA in each row
+DASS_temp$na <- rowSums(is.na(DASS_temp[,1:22]))
+# select those with 20% NA to impute value 
+DASS_imputation <- DASS_temp %>% filter(na < 21*0.2 & na > 0)
+# 0 participant having the 1 column with NA, with 3 parti having 21 NAs
+
+
+#Calculate DASS_dep scores for each participant and filter out NAs
+DASS_temp <- mutate(DASS_temp, DASS_dep_total = 2*(DASS_3+DASS_5+DASS_10+DASS_13+DASS_16+DASS_17+DASS_21))
+
+#Calculate DASS_anx scores for each participant and filter out NAs
+DASS_temp <- mutate(DASS_temp, DASS_anx_total = 2*(DASS_2+DASS_4+DASS_7+DASS_9+DASS_15+DASS_19+DASS_20))
+
+#Calculate DASS_str scores for each participant and filter out NAs
+DASS_temp <- mutate(DASS_temp, DASS_str_total = 2*(DASS_1+DASS_6+DASS_8+DASS_11+DASS_12+DASS_14+DASS_18))
+
+# compute DASS total score, max = 21*3*2 = 126
+DASS_temp <- mutate(DASS_temp, DASS_total = DASS_dep_total + DASS_anx_total + DASS_str_total)
+
+# add tp cleaned data frame
+COVID_cleaned <- COVID_cleaned %>% cbind(DASS_total_3 = DASS_temp$DASS_total, 
+                                         DASS_dep_total_3 = DASS_temp$DASS_dep_total,
+                                         DASS_anx_total_3 = DASS_temp$DASS_anx_total,
+                                         DASS_str_total_3 = DASS_temp$DASS_str_total)
+
+```
+
+
+```{r ISI}
+
+ISI_temp <- select(df, SCOV_ID, starts_with("ISI")& !ends_with("_F"))
+
+# check no. of NA in each row
+ISI_temp$na <- rowSums(is.na(ISI_temp))
+# select those with 20% NA to impute value 
+ISI_imputation <- ISI_temp %>% filter(na <= 5*0.2 & na > 0)
+# 6 participant having the 1 column with NA
+ISI_full <- ISI_temp %>% filter(na==0)
+# total of 327+6 participant
+ISI_temp <- rbind(ISI_full,ISI_imputation)
+
+df <- df %>%mutate(ISI_total = ISI_1_1 + ISI_1_2 + ISI_1_3 + ISI_2_1 + ISI_3_1 + ISI_4_1 + ISI_5_1)
+
+
+COVID_cleaned <- COVID_cleaned %>% cbind(ISI_total_3 = df$ISI_total)
+
+
+```
+
+
+```{r QoL}
+
+# please keep the variable name the same across time points!!!!!!!
+df <- df %>%mutate(QoL_score = QoL1_1 + QoL1_2 + QoL1_3 + QoL1_4 + QoL1_5)
+
+COVID_cleaned <- COVID_cleaned %>% cbind(QoL_score_3 = df$QoL_score)
+
+```
+
+
+```{r weight and hight}
+
+# weight: convert pound to kg
+df <- df %>% mutate(Weight = ifelse(weight_2_1 == 2, weight_1_1_1, weight_1_1_1 * 0.45359237)) 
+
+COVID_cleaned <- COVID_cleaned %>% cbind(Weight_3 = df$Weight)
+
+# abnormal: 761, 1080, 1215, 1328; 1168, 1506,1217,1287
+
+
+# add height &  BMI data
+#BMI <- read.csv("condition_BMI.csv")
+#COVID_cleaned$BMI <- BMI$BMI
+# 986 VS 1386
+
+```
+
+```{r PSQI}
+
+# 3rd survey numbering same as 2nd survey
+## dealt with NAs as default response, checked corresponding numbering of variables
+
+
+#Compute C1: Subjective sleep quality
+# Q11 in 1st survey, Q12 in follow-up survey
+PSQI_temp <- PSQI_temp %>% 
+  mutate(PSQI1_2_1a= ifelse(is.na(PSQI1_2_1),0,PSQI1_2_1),# go to sleep
+         PSQI2_2_1a = ifelse(is.na(PSQI2_2_1),0,PSQI2_2_1),# get up
+         PSQI3_1_1a = ifelse(is.na(PSQI3_1_1),0,PSQI3_1_1),
+         PSQI3_2_1a = ifelse(is.na(PSQI3_2_1),0,PSQI3_2_1), # falling asleep
+         PSQI4_2_1a = ifelse(is.na(PSQI4_2_1),0,PSQI4_2_1), #sleep duration
+         PSQI9a = ifelse(is.na(PSQI9),0,PSQI9), # sleep medicine
+         PSQI10a = ifelse(is.na(PSQI10),0,PSQI10),
+         PSQI11a = ifelse(is.na(PSQI11),0,PSQI11), # daytime disfunction
+         
+        
+         C1 = PSQI11, # subjective quality, numbering same as 1st time point
+         DIS = PSQI3_1_1a * 60 + PSQI3_2_1a, 
+         C2a = case_when(DIS <= 15 ~ 0, DIS %in% 16:30 ~ 1, DIS %in% 31:60 ~ 2, DIS > 60 ~ 3),
+         C2b = C2a + PSQI5_1,
+         C2 = case_when(C2b == 0 ~ 0, C2b %in% 1:2 ~ 1, C2b %in% 3:4 ~ 2, C2b > 4 ~ 3),
+         SD = PSQI4_1_1 + PSQI4_2_1a/60, # sleep duration
+         C3 = ifelse(SD >= 7, 0,
+                                    ifelse(SD >= 6, 1,
+                                    ifelse(SD >= 5, 2, 3))),
+         bedtime_a = (PSQI2_1_1*60 + PSQI2_2_1a - PSQI1_1_1*60 - PSQI1_2_1a),
+         bedtime = ifelse(bedtime_a>0, bedtime_a, (24*60+bedtime_a)),
+         sleeptime = PSQI4_1_1*60 + PSQI4_2_1a,
+         SE = sleeptime/bedtime,
+         C4 = ifelse(SE >= 0.85, 0,
+                     ifelse(SE >= 0.75, 1,
+                     ifelse(SE >= 0.65, 2, 3))),
+         C5a = PSQI5_2+PSQI5_3+PSQI5_4+PSQI5_5+PSQI5_6+PSQI5_7+PSQI5_8+PSQI5_9,
+         C5b = ifelse(PSQI6 == 1, C5a + PSQI7b, C5a), # other causes
+         C5 = ifelse(C5b == 0, 0,
+                     ifelse(C5b <= 9, 1,
+                     ifelse(C5b <= 18, 2, 3))),
+         C6 = PSQI9a,
+         C7a = PSQI10a + PSQI11a,
+         C7 = ifelse(C7a %in% 1:2, 1,
+                                    ifelse(C7a %in% 3:4, 2, 3)))
+         
+         
+         
+
+#Compute PSQI composite score for each participant
+PSQI_temp <- mutate(PSQI_temp, PSQI_total = C1 + C2 + C3 + C4 + C5 + C6 + C7, sleep_duration = sleeptime) 
+PSQI_score <- PSQI_temp %>% drop_na(PSQI_total,sleep_duration) # 322 out of 335
+
+# Add score to cleaned data frame
+COVID_cleaned <- COVID_cleaned %>% cbind(PSQI_total_3 = PSQI_temp$PSQI_total, Sleep_duration = PSQI_temp$sleep_duration)
+
+```
+
+
+```{r Exercise}
+
+# compute active exercising time (in minutes), intensive activity count as twice of moderate act
+df <- df %>% mutate(
+  strenuous1 = ifelse(is.na(strenuous1), 0, strenuous1), # count NA as 0 days
+  moderate1 = ifelse(is.na(moderate1), 0, moderate1),
+  walk1 = ifelse(is.na(walk1), 0, walk1),
+  intensive_time =  case_when(strenuous1==0 ~ 0, # for those exercised 0 days, strenuous2 is NA.
+                              strenuous2 ==1 ~ 20, 
+                              strenuous2 ==2 ~ 45,
+                              strenuous2 ==3 ~ 90,
+                              strenuous2 ==4 ~ 120),
+  moderate_time = case_when(moderate1 ==0 ~ 0, 
+                            moderate2 ==1 ~ 20, 
+                            moderate2 ==2 ~ 45,
+                            moderate2 ==3 ~ 90,
+                            moderate2 ==4 ~ 120),
+  walk_time = case_when(walk1 ==0 ~ 0, 
+                        walk2 ==1 ~ 20, 
+                        walk2 ==2 ~ 45,
+                        walk2 ==3 ~ 90,
+                        walk2 ==4 ~ 120),
+  exercise = as.numeric(strenuous1)*intensive_time*2 + as.numeric(moderate1)*moderate_time,
+  walk = as.numeric(walk1)*walk_time)
+  
+ 
+# compute sedentary hours: workday *5 + non-workday *2
+df <- df %>% mutate(sedentary = sedentary1*5 + sedentary2*2)
+
+#hist(df$sedentary)
+
+
+COVID_cleaned <- COVID_cleaned %>% cbind(exercise_3 = df$exercise, # min/week
+                                         sedentary_3 = df$sedentary, #hour/week
+                                         walk_3 = df$walk) #min/week
+
+
+
+```
+
+
+```{r Alcohol}
+
+
+#frequency
+
+Drinking <- df %>% select(starts_with("alcohol"), ends_with("alcohol"))
+
+colnames(Drinking)
+
+COVID_cleaned <- COVID_cleaned %>% cbind(drinking_freq_t3 = Drinking$last7days_alcohol,
+                                         binge_freq_t3 = Drinking$alcohol2)
+
+```
+
+
+
+
+```{r Smoke}
+
+df <- df %>% mutate(smoke1a = as.integer(smoke1a)) # "1" == don't smoke
+
+# ID = 1438 -> 1 in 2 weeks
+
+
+COVID_cleaned <- COVID_cleaned %>% cbind(smoke_YN_t3 = df$smoke1,
+                                         smoke_freq_t3 = df$smoke1a)
+
+
+```
+
+
+
+```{r export}
+write.csv(COVID_cleaned, "COVID_cleaned_time3_0521.csv",row.names = F, fileEncoding = "UTF-8")
+```
+

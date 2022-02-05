@@ -1,0 +1,547 @@
+---
+title: "Data Cleaning"
+author: "Yvonne JIN"
+date: "12/18/2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+library(foreign)
+library(haven)
+library(tidyverse)
+library(tidyr)
+library(ggplot2)
+library(lavaan)
+library(apaTables)
+```
+
+## Loading data
+
+loading database with variable labels
+
+```{r cars}
+# read in SPSS data with labels being added to demographic data
+df_labelled <- read.spss("merged_Survey on Sleep Health+followedup.sav",use.value.labels = T,to.data.frame = T)
+
+
+
+
+
+#na <- is.na(df)
+#df[is.na(df)] = 0
+#test$x2[is.na(test$x2)] <- 0
+
+```
+
+
+Eligibility & consent check
+```{r}
+
+parti <- df_labelled %>% filter(Eli1 == "Yes" & Eli2 == "Yes")
+# 1633 -> 1591
+
+parti <- parti %>% filter(agree == "Yes")
+# 1591 -> 1387
+
+
+COVID_cleaned <- parti[c("SCOV_ID", "Gender", "Age", "Ethnicity", "Marital", "Education", "Occupation", "income", "household_size")]
+
+
+#write.csv(parti,"demographic_eligible.csv")
+
+
+```
+
+
+
+
+loading database for numerical computation
+```{r}
+# read in SPSS data with original (numerical) values
+df <- read_spss("merged_Survey on Sleep Health+followedup.sav")
+
+df_1 <- df %>% filter(Eli1 == 2 & Eli2 == 1 & agree == 1)
+# 1633 -> 1387
+
+# count No. of NAs for each value
+countna <- colSums(is.na(df))
+```
+
+
+## computing DASS score
+
+### stage 1
+
+Q: DASS22? 	Yes, and still have symptoms / Yes, but recovered
+
+Impute value for those with < 20% NA (21*0.2=4.2)
+  5 participant having the 1 column with NA, each with different questions
+
+total of 1013+5 participant finished DASS in stage 1
+```{r}
+
+DASS_temp <- select(df_1, SCOV_ID, starts_with("DASS")& !ends_with("_F"))
+
+#DASS_temp <- select(df_labelled, SCOV_ID, starts_with("DASS")& !ends_with("_F"))
+
+# check no. of NA in each row
+DASS_temp$na <- rowSums(is.na(DASS_temp[,1:22]))
+# select those with 20% NA to impute value 
+DASS_imputation <- DASS_temp %>% filter(na < 21*0.2 & na > 0)
+# 5 participant having the 1 column with NA, each with different questions
+DASS_full <- DASS_temp %>% filter(na==0)
+
+# full information MLE imputation
+fitFIML_DASS <- lavaan()
+?lavaan
+
+
+# total of 1013+5 participant finished DASS in stage 1
+DASS_temp <- rbind(DASS_full,DASS_imputation)
+
+#Calculate DASS_dep scores for each participant and filter out NAs
+DASS_temp <- mutate(DASS_temp, DASS_dep_total = 2*(DASS_3+DASS_5+DASS_10+DASS_13+DASS_16+DASS_17+DASS_21))
+
+#Calculate DASS_anx scores for each participant and filter out NAs
+DASS_temp <- mutate(DASS_temp, DASS_anx_total = 2*(DASS_2+DASS_4+DASS_7+DASS_9+DASS_15+DASS_19+DASS_20))
+
+#Calculate DASS_str scores for each participant and filter out NAs
+DASS_temp <- mutate(DASS_temp, DASS_str_total = 2*(DASS_1+DASS_6+DASS_8+DASS_11+DASS_12+DASS_14+DASS_18))
+
+# compute DASS total score, max = 21*3*2 = 126
+DASS_temp <- mutate(DASS_temp, DASS_total = DASS_dep_total + DASS_anx_total + DASS_str_total)
+```
+
+
+```{r}
+??apa.descriptives
+??apa.table
+```
+
+
+### stage 2
+3 participant having the 1 column with NA, each with different questions
+total of 482+3 participant finished DASS in stage 2
+```{r}
+
+
+DASS_F_temp <- select(df_1, SCOV_ID, starts_with("DASS")&  ends_with("_F"))
+
+# check no. of NA in each row
+DASS_F_temp$na <- rowSums(is.na(DASS_F_temp))
+# select those with 20% NA to impute value 
+DASS_F_imputation <- DASS_F_temp %>% filter(na < 21*0.2 & na > 0)
+# 3 participant having the 1 column with NA, each with different questions
+DASS_F_full <- DASS_F_temp %>% filter(na==0)
+
+
+# full information MLE imputation
+#______________________
+
+
+# total of 482+3 participant finished DASS in stage 2
+DASS_F_temp <- rbind(DASS_F_full,DASS_F_imputation)
+
+
+#Calculate DASS_dep scores for each participant and filter out NAs
+DASS_F_temp <- mutate(DASS_F_temp, DASS_dep_F_total = 2*(DASS_3_F+DASS_5_F+DASS_10_F+DASS_13_F+DASS_16_F+DASS_17_F+DASS_21_F))
+
+#Calculate DASS_anx scores for each participant and filter out NAs
+DASS_F_temp <- mutate(DASS_F_temp, DASS_anx_F_total = 2*(DASS_2_F+DASS_4_F+DASS_7_F+DASS_9_F+DASS_15_F+DASS_19_F+DASS_20_F))
+
+#Calculate DASS_str scores for each participant and filter out NAs
+DASS_F_temp <- mutate(DASS_F_temp, DASS_str_F_total = 2*(DASS_1_F+DASS_6_F+DASS_8_F+DASS_11_F+DASS_12_F+DASS_14_F+DASS_18_F))
+
+# compute DASS total score
+DASS_F_temp <- mutate(DASS_F_temp, DASS_F_total = DASS_dep_F_total + DASS_anx_F_total + DASS_str_F_total)
+```
+
+
+```{r}
+# add tp cleaned data frame
+COVID_cleaned <- COVID_cleaned %>% cbind(DASS_total = DASS_temp$DASS_total, 
+                                         DASS_dep_total = DASS_temp$DASS_dep_total,
+                                         DASS_anx_total = DASS_temp$DASS_anx_total,
+                                         DASS_str_total = DASS_temp$DASS_str_total,
+                                         DASS_F_total = DASS_F_temp$DASS_F_total,
+                                         DASS_dep_F_total = DASS_F_temp$DASS_dep_F_total,
+                                         DASS_anx_F_total = DASS_F_temp$DASS_anx_F_total,
+                                         DASS_str_F_total = DASS_F_temp$DASS_str_F_total
+                                         )
+
+COVID_cleaned <- COVID_cleaned %>% mutate(DASS_total_change =DASS_F_total - DASS_total,
+                                         DASS_dep_change = DASS_dep_F_total - DASS_dep_total,
+                                         DASS_anx_change = DASS_anx_F_total - DASS_anx_total,
+                                         DASS_str_change = DASS_str_F_total - DASS_str_total)
+```
+
+
+## ISI computation
+
+### stage 1
+58 participant need imputation for 1 column
+total of 1022+58 participant finished DASS in stage 1
+```{r}
+ISI_temp <- select(df_1, SCOV_ID, starts_with("ISI")& !ends_with("_F"))
+
+# check no. of NA in each row
+ISI_temp$na <- rowSums(is.na(ISI_temp))
+# select those with 20% NA to impute value 
+ISI_imputation <- ISI_temp %>% filter(na <= 5*0.2 & na > 0)
+# 58 participant having the 1 column with NA, each with different questions
+ISI_full <- ISI_temp %>% filter(na==0)
+
+
+# full information MLE imputation
+#______________________
+
+
+# total of 1022+58 participant finished DASS in stage 1
+ISI_temp <- rbind(ISI_full,ISI_imputation)
+
+df_1 <- df_1 %>%mutate(ISI_total = ISI1_1 + ISI1_2 + ISI1_3 + ISI2_1 + ISI3_1 + ISI4_1 + ISI5_1)
+
+
+COVID_cleaned <- COVID_cleaned %>% cbind(ISI_total = df_1$ISI_total)
+
+
+```
+
+
+### stage 2
+6 participants needs imputation
+ total of 513+6 participant finished DASS in stage 2
+```{r}
+ISI_F_temp <- select(df_1, SCOV_ID, starts_with("ISI")& ends_with("_F"))
+
+# check no. of NA in each row
+ISI_F_temp$na <- rowSums(is.na(ISI_F_temp))
+# select those with 20% NA to impute value 
+ISI_F_imputation <- ISI_F_temp %>% filter(na <= 5*0.2 & na > 0)
+# 6 participant having the 1 column with NA, each with different questions
+ISI_F_full <- ISI_F_temp %>% filter(na==0)
+
+
+# full information MLE imputation
+#______________________
+
+
+# total of 513+6 participant finished DASS in stage 2
+ISI_F_temp <- rbind(ISI_F_full,ISI_F_imputation)
+
+
+
+df_1 <- df_1 %>%mutate(ISI_F_total = ISI_1_1_F + ISI_1_2_F + ISI_1_3_F + ISI_2_1_F + ISI_3_1_F + ISI_4_1_F + ISI_5_1_F)
+
+# add to cleaned data frame
+
+COVID_cleaned <- COVID_cleaned %>% cbind(ISI_F_total = df_1$ISI_F_total)
+```
+
+
+## Quality of Life 
+```{r}
+
+df_1 <- df_1 %>%mutate(QoL_score = QoL_1 + QoL_2 + QoL_3 + QoL_4 + QoL_5)
+
+df_1 <- df_1 %>%mutate(QoL_F_score = QoL1_1_F + QoL1_2_F +  QoL1_3_F + QoL1_4_F + QoL1_5_F)
+
+COVID_cleaned <- COVID_cleaned %>% cbind(QoL_score = df_1$QoL_score)
+
+COVID_cleaned <- COVID_cleaned %>% cbind(QoL_F_score = df_1$QoL_F_score)
+
+#hist(df_1$QoL_score, breaks = 35)
+#hist(df_1$QoL_F_score, breaks = 35)
+
+```
+
+
+
+## Height and Weight
+```{r} 
+
+# height: convert feet to cm # manually change inches -> cm later
+df_1 <- df_1 %>% mutate(Height = ifelse(height_2_1 == 1, height_1_1_1, height_1_1_1 * 30.48)) 
+
+# add to cleaned data 
+COVID_cleaned <- COVID_cleaned %>% cbind(Height = df_1$Height)
+
+# weight: convert pound to kg
+df_1 <- df_1 %>% mutate(Weight = ifelse(weight_2_1 == 2, weight_1_1_1, weight_1_1_1 * 0.45359237)) 
+
+COVID_cleaned <- COVID_cleaned %>% cbind(Weight = df_1$Weight)
+
+# Weight_F:follow up study
+df_1 <- df_1 %>% mutate(Weight_F = ifelse(weight_2_1_F == 2, weight_1_1_1_F, weight_1_1_1_F * 0.45359237)) 
+
+COVID_cleaned <- COVID_cleaned %>% cbind(Weight_F = df_1$Weight_F)
+
+# add manually checked BMI data
+#BMI <- read.csv("condition_BMI.csv")
+#COVID_cleaned$BMI <- BMI$BMI
+# 986 VS 1386
+
+```
+
+
+
+## computing PSQI Score
+
+checked some questions with reasonable non-response
+```{r}
+
+#Calculate PSQI scores
+PSQI_temp <- select(df_1, SCOV_ID, starts_with("PSQI")& !ends_with("_F"))
+
+#Compute C1: Subjective sleep quality
+# Q11 in 1st survey, Q12 in follow-up survey
+PSQI_temp <- mutate(PSQI_temp, C1 = PSQI11)
+
+
+#compute C2: Sleep latency
+#Compute C2a: 
+#time needed to fall asleep (DIS)
+# if fill in hours but not minutes, taken as 0
+PSQI_temp <- mutate(PSQI_temp, 
+                    PSQI4_1_1a = ifelse(is.na(PSQI4_1_1), 0, PSQI4_1_1),
+                    PSQI4_2_1a = ifelse(is.na(PSQI4_2_1), 0, PSQI4_2_1),
+                    DIS = PSQI4_1_1a * 60 + PSQI4_2_1a)
+PSQI_temp <- mutate(PSQI_temp, C2a = case_when(DIS <= 15 ~ 0, DIS %in% 16:30 ~ 1, DIS %in% 31:60 ~ 2, DIS > 60 ~ 3))
+#Compute C2b: DIS + Q5a (Q6_1) trouble fall asleep within 30min
+PSQI_temp <- mutate(PSQI_temp, C2b = C2a + PSQI6_1)
+#Compute C2
+PSQI_temp <- mutate(PSQI_temp, C2 = case_when(C2b == 0 ~ 0, C2b %in% 1:2 ~ 1, C2b %in% 3:4 ~ 2, C2b > 4 ~ 3))
+
+
+
+#Compute C3: Sleep duration
+#Compute sleep duration (SD)
+# if specified hours but not minutes, taken PSQI5_2_1 as 0
+PSQI_temp <- mutate(PSQI_temp, SD = ifelse(!is.na(PSQI5_2_1),PSQI5_1_1 + PSQI5_2_1/60,PSQI5_1_1))
+PSQI_temp <- mutate(PSQI_temp, C3 = ifelse(SD >= 7, 0,
+                                    ifelse(SD >= 6, 1,
+                                    ifelse(SD >= 5, 2, 3))))
+
+
+#Compute C4:  Sleep efficiency
+#  Sleep efficiency = (# hours slept/# hours in bed) X 100%  //hours? I used minutes
+
+#Compute time in bed
+# mutate NA->0 for minutes (PSQI3_2_1, PSQI_2_2_1)
+PSQI_temp <- mutate(PSQI_temp, PSQI2_2_1a = ifelse(is.na(PSQI2_2_1),0,PSQI2_2_1),
+                               PSQI3_2_1a = ifelse(is.na(PSQI3_2_1),0,PSQI3_2_1))
+PSQI_temp <- mutate(PSQI_temp, bedtime_a = (PSQI3_1_1*60 + PSQI3_2_1a - PSQI2_1_1*60 - PSQI2_2_1a),
+                               bedtime = ifelse(bedtime_a>0, bedtime_a, (24*60+bedtime_a))) # add one day if negative # don't use hours: floor division lost decimal.
+                              
+#Compute sleep duration in minutes
+# if specified hours but not minutes, taken PSQI5_2_1 as 0
+PSQI_temp <- mutate(PSQI_temp, sleeptime = ifelse(!is.na(PSQI5_2_1),PSQI5_1_1*60 + PSQI5_2_1,PSQI5_1_1*60))
+
+#Compute SE
+PSQI_temp <- mutate(PSQI_temp, SE = sleeptime/bedtime)
+PSQI_temp <- mutate(PSQI_temp, C4 = ifelse(SE >= 0.85, 0,
+                                    ifelse(SE >= 0.75, 1,
+                                    ifelse(SE >= 0.65, 2, 3))))
+
+
+
+#Compute C5:  Sleep disturbance
+#Compute accumulative scores
+PSQI_temp <- mutate(PSQI_temp, C5a = PSQI6_2+PSQI6_3+PSQI6_4+PSQI6_5+PSQI6_6+PSQI6_7+PSQI6_8+PSQI6_9)
+PSQI_temp <- mutate(PSQI_temp, C5b = ifelse(PSQI7 == 1, C5a + PSQI7b, C5a)) # other causes
+
+PSQI_temp <- mutate(PSQI_temp, C5 = ifelse(C5b == 0, 0,
+                                    ifelse(C5b <= 9, 1,
+                                    ifelse(C5b <= 18, 2, 3))))
+
+
+#Compute C6: Use of sleep medication
+PSQI_temp <- mutate(PSQI_temp, C6 = ifelse(is.na(PSQI8),0,PSQI8))
+
+
+
+#Compute C7: Daytime dysfunction
+#Compute C7a
+PSQI_temp <- mutate(PSQI_temp, 
+                    PSQI9a = ifelse(is.na(PSQI9),0,PSQI9),
+                    PSQI10a = ifelse(is.na(PSQI10),0,PSQI10),
+                    C7a = PSQI9a + PSQI10a)
+PSQI_temp <- mutate(PSQI_temp, C7 = ifelse(C7a %in% 1:2, 1,
+                                    ifelse(C7a %in% 3:4, 2, 3)))
+#Compute PSQI composite score for each participant
+PSQI_temp <- mutate(PSQI_temp, PSQI_total = C1 + C2 + C3 + C4 + C5 + C6 + C7, sleep_duration = sleeptime)  
+PSQI_score <- PSQI_temp %>% drop_na(PSQI_total,sleep_duration)
+# 1085 observations
+#glimpse(PSQI_score)
+
+```
+
+
+## PSQI Follow up survey
+
+```{r pressure, echo=FALSE}
+
+#Calculate PSQI scores
+PSQI_F_temp <- select(df_1, SCOV_ID, starts_with("PSQI") & ends_with("_F"))
+
+#Compute C1: Subjective sleep quality
+# Q11 in 1st survey, Q12 in follow-up survey
+PSQI_F_temp <- PSQI_F_temp %>% 
+  mutate(PSQI1_2_1_Fa = ifelse(is.na(PSQI1_2_1_F),0,PSQI1_2_1_F),# go to sleep
+         PSQI2_2_1_Fa = ifelse(is.na(PSQI2_2_1_F),0,PSQI2_2_1_F),# get up
+         PSQI3_1_1_Fa = ifelse(is.na(PSQI3_1_1_F),0,PSQI3_1_1_F),
+         PSQI3_2_1_Fa = ifelse(is.na(PSQI3_2_1_F),0,PSQI3_2_1_F), # falling asleep
+         PSQI4_2_1_Fa = ifelse(is.na(PSQI4_2_1_F),0,PSQI4_2_1_F), #sleep duration
+         PSQI9_Fa = ifelse(is.na(PSQI9_F),0,PSQI9_F), # sleep medicine
+         PSQI10_Fa = ifelse(is.na(PSQI10_F),0,PSQI10_F),
+         PSQI11_Fa = ifelse(is.na(PSQI11_F),0,PSQI11_F), # daytime disfunction
+         
+        
+         C1 = PSQI12_F, # subjective quality
+         DIS = PSQI3_1_1_F * 60 + PSQI3_2_1_Fa, 
+         C2a = case_when(DIS <= 15 ~ 0, DIS %in% 16:30 ~ 1, DIS %in% 31:60 ~ 2, DIS > 60 ~ 3),
+         C2b = C2a + PSQI5_1_F,
+         C2 = case_when(C2b == 0 ~ 0, C2b %in% 1:2 ~ 1, C2b %in% 3:4 ~ 2, C2b > 4 ~ 3),
+         SD = PSQI4_1_1_F + PSQI4_2_1_Fa/60, # sleep duration
+         C3 = ifelse(SD >= 7, 0,
+                                    ifelse(SD >= 6, 1,
+                                    ifelse(SD >= 5, 2, 3))),
+         bedtime_a = (PSQI2_1_1_F*60 + PSQI2_2_1_Fa - PSQI1_1_1_F*60 - PSQI1_2_1_Fa),
+         bedtime = ifelse(bedtime_a>0, bedtime_a, (24*60+bedtime_a)),
+         sleeptime = PSQI4_1_1_F*60 + PSQI4_2_1_Fa,
+         SE = sleeptime/bedtime,
+         C4 = ifelse(SE >= 0.85, 0,
+                     ifelse(SE >= 0.75, 1,
+                     ifelse(SE >= 0.65, 2, 3))),
+         C5a = PSQI5_2_F+PSQI5_3_F+PSQI5_4_F+PSQI5_5_F+PSQI5_6_F+PSQI5_7_F+PSQI5_8_F+PSQI5_9_F,
+         C5b = ifelse(PSQI6_F == 1, C5a + PSQI8_F, C5a), # other causes
+         C5 = ifelse(C5b == 0, 0,
+                     ifelse(C5b <= 9, 1,
+                     ifelse(C5b <= 18, 2, 3))),
+         C6 = PSQI9_Fa,
+         C7a = PSQI10_Fa + PSQI11_Fa,
+         C7 = ifelse(C7a %in% 1:2, 1,
+                                    ifelse(C7a %in% 3:4, 2, 3)))
+         
+         
+         
+
+#Compute PSQI composite score for each participant
+PSQI_F_temp <- mutate(PSQI_F_temp, PSQI_total = C1 + C2 + C3 + C4 + C5 + C6 + C7, sleep_duration = sleeptime) 
+PSQI_F_score <- PSQI_F_temp %>% drop_na(PSQI_total,sleep_duration)
+
+# Add score to cleaned data frame
+COVID_cleaned <- COVID_cleaned %>% cbind(PSQI_total = PSQI_temp$PSQI_total, Sleep_duration = PSQI_temp$sleep_duration, 
+                                         PSQI_F_total = PSQI_F_temp$PSQI_total, Sleep_F_duration =PSQI_F_temp$sleep_duration)
+
+```
+
+
+## exercise & sedentary hours
+
+```{r}
+
+# compute active exercising time (in minutes), intensive activity cound as twice of moderate act
+df_1 <- df_1 %>% mutate(
+  intensive_time =  case_when(strenuous_act1==0 ~ 0, 
+                              strenuous_act1a ==1 ~ 20, 
+                              strenuous_act1a ==2 ~ 45,
+                              strenuous_act1a ==3 ~ 90,
+                              strenuous_act1a ==4 ~ 120),
+  moderate_time = case_when(moderate_act1 ==0 ~ 0, 
+                            moderate_act1a ==1 ~ 20, 
+                            moderate_act1a ==2 ~ 45,
+                            moderate_act1a ==3 ~ 90,
+                            moderate_act1a ==4 ~ 120),
+  exercise = as.numeric(strenuous_act1)*intensive_time*2 + as.numeric(moderate_act1)*moderate_time,
+  
+  intensive_time_F =  case_when(strenuous1_F == 0 ~ 0, 
+                                strenuous2_F == 1 ~ 20, 
+                                strenuous2_F ==2 ~ 45,
+                                strenuous2_F ==3 ~ 90,
+                                strenuous2_F ==4 ~ 120),
+  moderate_time_F = case_when(moderate1_F == 0 ~ 0, 
+                              moderate2_F ==1 ~ 20, 
+                              moderate2_F ==2 ~ 45,
+                              moderate2_F ==3 ~ 90,
+                              moderate2_F ==4 ~ 120),
+  exercise_F = as.numeric(strenuous1_F)*intensive_time_F*2 + as.numeric(moderate1_F)*moderate_time_F
+)
+
+# compute sedentary hours: workday *5 + non-workday *2
+df_1 <- df_1 %>% mutate(
+  sedentary = sedentary1*5 + sedentary2*2,
+  sedentary_F = sedentary1_F*5 + sedentary2_F*2
+)
+
+#hist(df_1$sedentary)
+
+
+COVID_cleaned <- COVID_cleaned %>% cbind(exercise = df_1$exercise, exercise_F = df_1$exercise_F, sedentary = df_1$sedentary, sedentary_F = df_1$sedentary_F)
+
+```
+
+
+## COVID impact 
+Q2,7,11a,12 - worried/affected, %
+Q3 - behavior change, self protection 0/1
+Q9 - behavior change, decrease activities, %
+Q13 - attitude about government response, %
+```{r}
+COVID_impact <- df_1 %>% select(starts_with("COVID")) 
+
+COVID_impact <- COVID_impact %>% mutate(worry = (covid2_1+covid2_2+covid7_1+covid11a_1+covid12_1)/5,
+                                        decrease_act = (covid9_1+covid9_2+covid9_3+covid9_4+covid9_5)/5,
+                                        attituede_ = (covid13_1+covid13_2+covid14_1)/3)
+
+COVID_cleaned <- COVID_cleaned %>% cbind(worry = COVID_impact$worry,
+                                         decrease_activity = COVID_impact$decrease_act,
+                                         dissatisfaction = COVID_impact$attituede_)
+
+```
+
+
+## cut off
+```{r}
+## cutoff
+library(ggpubr)
+library(rstatix)
+
+# PSQI
+
+COVID_cleaned <- COVID_cleaned %>% mutate(PSQI_cond = case_when(
+  PSQI_total >= 7 & PSQI_F_total >= 7 ~ "Persistent",
+  PSQI_total >= 7  & PSQI_F_total < 7 ~ "Temporary",
+  PSQI_total < 7  & PSQI_F_total < 7 ~ "No_Insomnia",
+  PSQI_total < 7  & PSQI_F_total >= 7 ~ "Emerging"
+) ) %>%
+  convert_as_factor(SCOV_ID,PSQI_cond)
+
+# ISI
+
+COVID_cleaned <- COVID_cleaned %>% mutate(ISI_cond = case_when(
+  ISI_total >= 10 & ISI_F_total >= 10 ~ "Persistent",
+  ISI_total >= 10  & ISI_F_total < 10 ~ "Temporary",
+  ISI_total < 10  & ISI_F_total < 10 ~ "No_Insomnia",
+  ISI_total < 10  & ISI_F_total >= 10 ~ "Emerging"
+) ) %>%
+  convert_as_factor(SCOV_ID,ISI_cond)
+```
+
+
+## lifestyle data
+```{r}
+descriptive_ <- df_1 %>% select(starts_with("add"),starts_with("seek"),starts_with("media"),starts_with("COVID"),starts_with("social"),starts_with("alcohol"),starts_with("smoke"),ends_with("impact"),starts_with("phyhealth"))
+
+#length(colnames(descriptive_))
+#?length
+
+COVID_cleaned <- COVID_cleaned %>% cbind(descriptive_[1:length(colnames(descriptive_))])
+
+#COVID_na_rm <- COVID_cleaned %>% drop_na(PSQI_total,PSQI_F_total,DASS_total, DASS_F_total)
+
+write.csv(COVID_cleaned, "COVID_cleaned_1218.csv",row.names = F, fileEncoding = "UTF-8")
+
+
+```
+

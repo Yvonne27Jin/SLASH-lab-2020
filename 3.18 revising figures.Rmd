@@ -1,0 +1,401 @@
+---
+title: "3.18 revise figures"
+author: "Yvonne JIN"
+date: "3/18/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+getwd()
+
+
+library(foreign)
+library(haven)
+library(tidyverse)
+library(tidyr)
+library(ggplot2)
+library(lavaan)
+library(apaTables)
+
+df_labelled <- read.spss("merged_Survey on Sleep Health+followedup.sav",use.value.labels = T,to.data.frame = T)
+
+parti_lablled <- df_labelled %>% filter(Eli1 == "Yes" & Eli2 == "Yes" & agree == "Yes")
+
+```
+
+## Figure 1.1
+
+
+
+```{r }
+## additional Qs for sleep problems - graphs
+
+
+#  combine before 2019 + S1 + S2; 
+add <- parti_lablled %>% select(starts_with("add")) %>% 
+  mutate(adds1_ = case_when(
+    adds1 == "Before 2019" ~ "Before 2019 S3",
+    adds1 == "BetweenJan 01 2019 and March 31 2019" ~ "Before 2019 S3",
+    adds1 == "Between April 01 2019 and June 30 2019" ~ "Before 2019 S3",
+    adds1 == "Between July 01 2019 and September 30 2019" ~ "2019 S3",
+    adds1 == "Between October 01 2019 and Dec 31 2019 " ~ "2019 S4",
+    adds1 == "Between Jan 01 2020 and March 31 2020" ~ "2020 S1",
+    adds1 == "After April 01 2020" ~ "After 2020 S1"))
+
+
+##------------------
+# title = "Onset time of Sleep problems"
+# value = c(186, 110, 70, 189, 38) , total = 593
+# legend.title = element_text("Time of Onset")
+
+
+insomnia_onset <- data.frame(Time = c("Before 2019 Q3", 
+                                      "2019 Q3", 
+                                      "2019 Q4", 
+                                      "2020 Q1", 
+                                      "After 2020 Q1"),
+                             Value = c(186, 110, 70, 189, 38),
+                             Perc = c("31%", "19%", "12%", "32%", "6%"))
+
+
+# cut one decimal because of limited space.
+
+#fix order of categories
+insomnia_onset$Time <- factor(insomnia_onset$Time, ordered = T, 
+                              levels = as.character(insomnia_onset$Time))
+
+
+head(insomnia_onset)
+
+# changed number into percentage
+# removed outer numbers
+# changed color palette
+# Changed order of legend and pie slices
+### Check this website for color palettes
+### https://www.datanovia.com/en/blog/ggplot-colors-best-tricks-you-will-love/
+### play around with legend
+### Rename legend labels 
+
+library(viridis)
+
+# moved legend to the left to be consistent with other figures
+# added notes for onset of social unrest and Covid
+# changed fond size and decimal number to make it less cluttering
+
+figure_1 <- ggplot(insomnia_onset, aes(x = "", y=Value, fill=Time)) +
+  geom_bar(width = 1,stat="identity") +
+  coord_polar("y",start=0,direction = -1) +
+  geom_text(aes(label = Perc),
+            vjust = 0.4,
+            position = position_stack(vjust = 0.5),
+            size = 3) +
+  labs(x= "", y = "") +
+  theme_minimal() +
+  scale_fill_brewer(name = "Time of Onset", palette = "Set3" ) +
+    theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line  = element_blank(),
+        panel.grid  = element_blank(),
+        legend.position = "left",
+        legend.margin = margin(-2,-2,-2,-2),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 9)) 
+
+
+
+?geom_text
+?theme
+
+
+figure_1
+
+library(ggpubr)
+
+```
+ 
+```{R eval=FALSE, include=FALSE}
+
+####
+insomnia_onset <- data.frame(Time = c("Before 2019 Q3\n", 
+                                      "2019 Q3\n(Onset of social unrest)", 
+                                      "\n2019 Q4\n", 
+                                      "2020 Q1\n(Onset of COVID-19)", 
+                                      "\nAfter 2020 Q1"),
+                             Value = c(186, 110, 70, 189, 38),
+                             Perc = c("31%", "19%", "12%", "32%", "6%"))
+
+ggarrange(figure_1, figure_1, figure_1, figure_1, 
+          labels = c("Figure 1.1", "Figure 1.2", "Figure 1.3", "Figure 1.4"),
+          ncol = 2, nrow = 2,
+          font.label = list(size = 8, color = "black", face = "bold"),
+          vjust = 1,
+          align = "h")
+
+
+
+```
+
+## Figure 1.2
+
+
+```{r pressure, echo=FALSE}
+
+# Figure 2: add4, count number of response for each cause
+
+insomnia_cause <- parti_lablled %>% select(starts_with("adds4"))
+summary(insomnia_cause)
+
+
+cause_insomnia <- data.frame(Cause = c("Political discord", "Worry about COVID-19","Psychological disturbances", "Sleep habits", "Sleep environment", "Daytime activities"),
+                              Number = c(327, 305, 470, 261, 200,201))
+#Note: psych distrubances  such as depression, anxiety, or high stress
+
+cause_insomnia
+
+# changed fond size, spacing between bars and text color.
+
+figure_2 <- ggplot(data = cause_insomnia, aes(x=Cause, y=Number)) +
+  geom_bar(stat="identity",width=0.75,fill="lightblue") + 
+  geom_text(aes(label=Number), hjust=1.2, vjust = 0.3, size=3.2, color = "black") +
+  theme(text = element_text(size=20)) +
+  theme_minimal() + 
+  theme(
+        axis.ticks = element_blank(),
+        axis.line  = element_blank()
+        )  + 
+  labs(x= "", y = "") +
+  theme(axis.text = element_text(colour = "black",size = 10)) +
+  coord_flip() # Horizontal
+
+?axis
+
+figure_2
+
+```
+
+## Figure 1.3
+
+```{r}
+
+#Figure_3 help seeking
+## variable seek2 If you wish to seek help for your sleep problems, which of the following sources of help will you seek? (Check all that apply)
+
+Seek_help <- parti_lablled %>% select(starts_with("seek2"))
+summary(Seek_help)
+
+
+seek_help_n <- data.frame(Source = c("Online information", "Family doctor","Psychiatrist", " Psychologist", "Social worker", "Friends/family"),
+                             Number = c(402, 97, 73, 100, 75,317))
+#Note: psych distrubances  such as depression, anxiety, or high stress
+
+seek_help_n
+
+
+
+figure_3 <- ggplot(data = seek_help_n, aes(x=Source, y=Number)) +
+  geom_bar(stat="identity",width=0.75,fill="lightblue") + 
+  geom_text(aes(label=Number), hjust=1.2, vjust = 0.3, size=3.2, color = "black") +
+  theme_minimal() +
+  labs(x= "", y = "") +
+  theme(axis.text = element_text(colour = "black",size = 10)) +
+  coord_flip() # Horizontal
+
+figure_3
+
+```
+
+## Figure 1.4
+
+```{r}
+
+
+#Figure_4 help seeking
+# varable seek 3 Which of the following methods do you think can improve your sleep?(Choose all that apply)
+
+
+Cure_perception <- parti_lablled %>% select(starts_with("seek3"))
+summary(Cure_perception)
+
+
+Cure_n <- data.frame(Source = c("Medications/Western Medicine", "Chinese medicine","Herbal/food remedies", " Stress management", "Exercise", " Cognitive Behavioral Therapy"),
+                          Number = c(181, 145, 164, 462, 395,125))
+
+
+Cure_n
+
+
+
+figure_4 <- ggplot(data = Cure_n, aes(x=Source, y=Number)) +
+  geom_bar(stat="identity",width=0.75,fill="lightblue") + 
+  geom_text(aes(label=Number), hjust=1.2, vjust = 0.3, size=3.2, color = "black") +
+  theme_minimal() +
+  labs(x= "", y = "") + 
+  theme(axis.text = element_text(colour = "black",size = 10)) +
+  coord_flip() # Horizontal
+
+figure_4
+
+
+```
+
+## Combine
+
+```{r eval=FALSE, include=FALSE}
+ggarrange(figure_1, figure_2, figure_3, figure_4, 
+          labels = c("Figure 1.1", "Figure 1.2", "Figure 1.3", "Figure 1.4"),
+          ncol = 2, nrow = 2,
+          font.label = list(size = 10, color = "black", face = "bold"),
+          vjust = 1,
+          align = "h")
+```
+
+
+```{r}
+
+
+#combine 4 figures in one graph
+# http://www.sthda.com/english/articles/24-ggpubr-publication-ready-plots/81-ggplot2-easy-way-to-mix-multiple-graphs-on-the-same-page/
+#install.packages("ggpubr")
+library(ggpubr)
+
+
+## JCSM guidline: labels for all multipanel figures using uppercase 12 point arial bold.
+
+
+sub_1 <- ggarrange(figure_1, figure_3, 
+          labels = c( "1A", "1C"),
+          ncol = 1, nrow = 2,
+          font.label = list(size = 12, color = "black", face = "bold", font = "arial"),
+          vjust = 0.9)
+
+sub_1
+
+sub_2 <- ggarrange(figure_2, figure_4, 
+          labels = c( "1B", "1D"),
+          ncol = 1, nrow = 2,
+          font.label = list(size = 12, color = "black", face = "bold", font = "arial"),
+          vjust = 0.9,
+          align = "v")
+
+
+ggarrange(sub_1, sub_2, 
+          ncol = 2, nrow = 1,
+          align = "h",
+          widths = c(1,1.2))
+
+
+
+
+
+
+```
+
+
+```{r}
+
+# version 2
+
+insomnia_onset <- data.frame(Time = c("Before 2019 Q3 - 31%\n", 
+                                      "2019 Q3 - 19%\n(Onset of social unrest)", 
+                                      "\n2019 Q4 - 12%\n", 
+                                      "2020 Q1 - 32%\n(Onset of COVID-19)", 
+                                      "\nAfter 2020 Q1 - 6%"),
+                             Value = c(186, 110, 70, 189, 38),
+                             Perc = c("31%", "19%", "12%", "32%", "6%"))
+# cut one decimal because of limited space.
+
+#fix order of categories
+insomnia_onset$Time <- factor(insomnia_onset$Time, ordered = T, 
+                              levels = as.character(insomnia_onset$Time))
+
+
+head(insomnia_onset)
+
+
+
+library(viridis)
+
+# moved percentage number to the legend, as the guideline suggest avoiding lettering on top of shaded areas
+# want to change the color of legend text the same as pie slices, but failed
+## legend.text = element_text(size = 9, color = palette("Set3")[1:5])
+
+figure_1_c <- ggplot(insomnia_onset, aes(x = "", y=Value, fill=Time)) +
+  geom_bar(width = 1,stat="identity") +
+  coord_polar("y",start=0,direction = -1) +
+  labs(x= "", y = "") +
+  theme_minimal() +
+  scale_fill_brewer(name = "Time of Onset", palette = "Set3" ) +
+    theme(axis.text = element_blank(),
+        axis.ticks = element_blank(),
+        axis.line  = element_blank(),
+        panel.grid  = element_blank(),
+        legend.position = "left",
+        legend.margin = margin(-2,-2,-2,-2),
+        legend.title = element_text(size = 10, face = "bold"),
+        legend.text = element_text(size = 10)) 
+
+
+figure_1_c
+
+
+figure_2_c <- ggplot(data = cause_insomnia, aes(x=Cause, y=Number)) +
+  geom_bar(stat="identity",width=0.75,fill="lightblue") + 
+  theme(text = element_text(size=20)) +
+  theme_minimal() + 
+  theme(
+        axis.ticks = element_blank(),
+        axis.line  = element_blank()
+        )  + 
+  labs(x= "", y = "") +
+  theme(axis.text = element_text(colour = "black",size = 10)) +
+  coord_flip() # Horizontal
+
+figure_3_c <- ggplot(data = seek_help_n, aes(x=Source, y=Number)) +
+  geom_bar(stat="identity",width=0.75,fill="lightblue") + 
+  #geom_text(aes(label=Number), hjust=1.4, vjust = 0.3, size=3.5, color = "black") +
+  theme_minimal() +
+  labs(x= "", y = "") +
+  theme(axis.text = element_text(colour = "black",size = 10)) +
+  coord_flip() # Horizontal
+
+
+figure_4_c <- ggplot(data = Cure_n, aes(x=Source, y=Number)) +
+  geom_bar(stat="identity",width=0.75,fill="lightblue") + 
+  #geom_text(aes(label=Number), hjust=1.4, vjust = 0.3, size=3.5, color = "black") +
+  theme_minimal() +
+  labs(x= "", y = "") + 
+  theme(axis.text = element_text(colour = "black",size = 10)) +
+  coord_flip() # Horizontal
+
+
+## use the first version for figue 1
+sub_1_c <- ggarrange(figure_1, figure_3_c, 
+          labels = c( "1A", "1C"),
+          ncol = 1, nrow = 2,
+          font.label = list(size = 12, color = "black", face = "bold", font = "arial"),
+          vjust = 0.9)
+
+sub_1
+
+sub_2_c <- ggarrange(figure_2_c, figure_4_c, 
+          labels = c( "1B", "1D"),
+          ncol = 1, nrow = 2,
+          font.label = list(size = 12, color = "black", face = "bold", font = "arial"),
+          vjust = 0.9,
+          align = "v")
+
+
+ggarrange(sub_1_c, sub_2_c, 
+          ncol = 2, nrow = 1,
+          align = "h",
+          widths = c(1,1.2))
+
+
+## pie chart bigger
+## (onset xxx) -> move to caption
+
+
+```
+
